@@ -20,8 +20,8 @@
 
 $VERSION='$Id: modified memcache.php,v 1.1.2.3 2008/08/28 18:07:54 mikl Exp $';
 
-define('ADMIN_USERNAME','jadmin'); 	// Admin Username
-define('ADMIN_PASSWORD','testjrun');  	// Admin Password
+define('ADMIN_USERNAME','admin'); 	// Admin Username
+define('ADMIN_PASSWORD','admin');  	// Admin Password
 define('DATE_FORMAT','Y/m/d H:i:s');
 define('GRAPH_SIZE',200);
 define('MAX_ITEM_DUMP',50);
