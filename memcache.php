@@ -13,21 +13,26 @@
   | obtain it through the world-wide-web, please send a note to          |
   | license@php.net so we can mail you a copy immediately.               |
   +----------------------------------------------------------------------+
-  | Author:  Harun Yayli <harunyayli at gmail.com>                       |
+  | Initial author:   Harun Yayli <harunyayli at gmail.com>              |
+  | Modifications by: Artur Ejsmont http://artur.ejsmont.org             |
   +----------------------------------------------------------------------+
 */
 
-$VERSION='$Id: memcache.php,v 1.1.2.3 2008/08/28 18:07:54 mikl Exp $';
+$VERSION='$Id: modified memcache.php,v 1.1.2.3 2008/08/28 18:07:54 mikl Exp $';
 
-define('ADMIN_USERNAME','memcache'); 	// Admin Username
-define('ADMIN_PASSWORD','password');  	// Admin Password
+define('ADMIN_USERNAME','jadmin'); 	// Admin Username
+define('ADMIN_PASSWORD','testjrun');  	// Admin Password
 define('DATE_FORMAT','Y/m/d H:i:s');
 define('GRAPH_SIZE',200);
 define('MAX_ITEM_DUMP',50);
 
-$MEMCACHE_SERVERS[] = 'mymemcache-server1:11211'; // add more as an array
-$MEMCACHE_SERVERS[] = 'mymemcache-server2:11211'; // add more as an array
-
+// Add servers in git ignored servers.php
+// Or use local one
+if (file_exists("servers.php")) {
+	include_once("servers.php");
+} else {
+	$MEMCACHE_SERVERS[] = 'localhost:11211';
+}
 
 ////////// END OF DEFAULT CONFIG AREA /////////////////////////////////////////////////////////////
 
@@ -81,12 +86,17 @@ function sendMemcacheCommand($server,$port,$command){
 		if (strpos($buf,"OK\r\n")!==false){ // flush_all says ok
 		    break;
 		}
+		if (strpos($buf,"RESET\r\n")!==false){ // reset stats ok
+		    break;
+		}
+		if (strpos($buf,"VERSION ")!==false){ // version answer
+		    break;
+		}
 	}
     fclose($s);
     return parseMemcacheResults($buf);
 }
 function parseMemcacheResults($str){
-    
 	$res = array();
 	$lines = explode("\r\n",$str);
 	$cnt = count($lines);
@@ -101,20 +111,45 @@ function parseMemcacheResults($str){
 			    $res[$l[0]][$l[1]]['stat']=array('flag'=>$flag,'size'=>$size);
 			    $res[$l[0]][$l[1]]['value']=$lines[++$i];
 			}
-		}elseif($line=='DELETED' || $line=='NOT_FOUND' || $line=='OK'){
+		}elseif( $l[0] == 'VERSION' ){
+		    return $l[1];
+		}elseif($line=='DELETED' || $line=='NOT_FOUND' || $line=='OK' || $line=='RESET'){
 		    return $line;
 		}
 	}
 	return $res;
-
 }
 
 function dumpCacheSlab($server,$slabId,$limit){
     list($host,$port) = explode(':',$server);
     $resp = sendMemcacheCommand($host,$port,'stats cachedump '.$slabId.' '.$limit);
+    return $resp;
+}
 
-   return $resp;
 
+function getAllSlabStats(){
+    $entries = sendMemcacheCommands('stats slabs');
+    $slabs = array();
+    foreach($entries as $server => $stats){
+        $slabs[$server] = array();
+        if( isset($stats['STAT']) ){
+            foreach($stats['STAT'] as $keyinfo => $value){
+                if (preg_match('/(\d+?)\:(.+?)$/',$keyinfo,$matches)){
+                    $slabs[$server][ $matches[1] ][ $matches[2] ] = $value;
+                }
+            }
+        }
+    }
+    return $slabs;
+}
+function flushStats($server){
+    list($host,$port) = explode(':',$server);
+    $resp = sendMemcacheCommand($host,$port,'stats reset');
+    return $resp;
+}
+function getMemcacheVersion(){
+    $entries = sendMemcacheCommands('version');
+    return $entries;
 }
 
 function flushServer($server){
@@ -286,8 +321,8 @@ function menu_entry($ob,$title) {
 
 function getHeader(){
     $header = <<<EOB
-<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
-<html>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en-us">
 <head><title>MEMCACHE INFO</title>
 <style type="text/css"><!--
 body { background:white; font-size:100.01%; margin:0; padding:0; }
@@ -304,6 +339,9 @@ a:hover { text-decoration:underline; }
 div.content { padding:1em 1em 1em 1em; position:absolute; width:97%; z-index:100; }
 
 h1.memcache { background:rgb(153,153,204); margin:0; padding:0.5em 1em 0.5em 1em; }
+div.memcache { background:rgb(153,153,204); margin:0; padding:0.5em 1em 0.5em 1em; }
+div.memcache a { text-decoration:underline; }
+
 * html h1.memcache { margin-bottom:-7px; }
 h1.memcache a:hover { text-decoration:none; color:rgb(90,90,90); }
 h1.memcache span.logo {
@@ -467,13 +505,39 @@ input {
 	}
 //-->
 </style>
+
+<link rel="stylesheet" href="js/style.css" type="text/css" />
+<link rel="stylesheet" href="js/vtip/css/vtip.css" type="text/css" />
+
+<script type="text/javascript" src="js/jquery.min.js"></script> 
+<script type="text/javascript" src="js/jquery.tablesorter.min.js"></script> 
+<script type="text/javascript" src="js/vtip/vtip-min.js"></script> 
+
+<script type="text/javascript">
+    function must_confirm(txt, link){
+        if( confirm(txt) == true ){
+            document.location.href = link;
+            return true;
+        }else{
+            return false;
+        }
+    }
+    $(document).ready(function(){
+        $.tablesorter.defaults.widgets = ['zebra'];
+        $('#slabStats').tablesorter( {sortList: [[0,0], [1,0]]} );
+    });
+
+console.debug(123);
+</script>
+
 </head>
 <body>
 <div class="head">
-	<h1 class="memcache">
-		<span class="logo"><a href="http://pecl.php.net/package/memcache">memcache</a></span>
-		<span class="nameinfo">memcache.php by <a href="http://livebookmark.net">Harun Yayli</a></span>
-	</h1>
+	<h1 class="memcache">Memcache stats v0.1</h1>
+    <div class="memcache">
+    <a href="http://artur.ejsmont.org">Visit website</a> &nbsp;
+    <a href="http://livebookmark.net/journal/2008/05/21/memcachephp-stats-like-apcphp/">Visit oryginal memcache.php website.</a>
+    </div>
 	<hr class="memcache">
 </div>
 <div class=content>
@@ -505,7 +569,8 @@ EOB;
 }
 echo
 	menu_entry(1,'View Host Stats'),
-	menu_entry(2,'Variables');
+	menu_entry(2,'Variables'),
+	menu_entry(8,'Slabs');
 
 echo <<<EOB
 	</ol>
@@ -673,9 +738,10 @@ echo getMenu();
 switch ($_GET['op']) {
 
     case 1: // host stats
-    	$phpversion = phpversion();
+        $phpversion = phpversion();
         $memcacheStats = getMemcacheStats();
         $memcacheStatsSingle = getMemcacheStats(false);
+        $memcacheVersion = getMemcacheVersion();
 
         $mem_size = $memcacheStats['limit_maxbytes'];
     	$mem_used = $memcacheStats['bytes'];
@@ -699,10 +765,11 @@ switch ($_GET['op']) {
 		<tr class=tr-1><td class=td-0>PHP Version</td><td>$phpversion</td></tr>
 EOB;
 		echo "<tr class=tr-0><td class=td-0>Memcached Host". ((count($MEMCACHE_SERVERS)>1) ? 's':'')."</td><td>";
+
 		$i=0;
 		if (!isset($_GET['singleout']) && count($MEMCACHE_SERVERS)>1){
     		foreach($MEMCACHE_SERVERS as $server){
-    		      echo ($i+1).'. <a href="'.$PHP_SELF.'&singleout='.$i++.'">'.$server.'</a><br/>';
+    		      echo ($i+1).'. <a href="'.$PHP_SELF.'&server=' . $i . '&singleout='.$i++.'">'.$server.'</a><br/>';
     		}
 		}
 		else{
@@ -712,7 +779,7 @@ EOB;
 		      echo '<a href="'.$PHP_SELF.'">(all servers)</a><br/>';
 		}
 		echo "</td></tr>\n";
-		echo "<tr class=tr-1><td class=td-0>Total Memcache Cache</td><td>".bsize($memcacheStats['limit_maxbytes'])."</td></tr>\n";
+		echo "<tr class=tr-1><td class=td-0>Max Memcache Size</td><td>".bsize($memcacheStats['limit_maxbytes'])."</td></tr>\n";
 
 	echo <<<EOB
 		</tbody></table>
@@ -722,12 +789,31 @@ EOB;
 EOB;
         foreach($MEMCACHE_SERVERS as $server){
             echo '<table cellspacing=0><tbody>';
-            echo '<tr class=tr-1><td class=td-1>'.$server.'</td><td><a href="'.$PHP_SELF.'&server='.array_search($server,$MEMCACHE_SERVERS).'&op=6">[<b>Flush this server</b>]</a></td></tr>';
+            echo '<tr class=tr-0><td class=td-0>'.$server.'</td><td>
+                  <button onclick="javascript:must_confirm(\'Delete all content on the server?!\',\''.$PHP_SELF.'&server='.($_GET["server"] ? $_GET["server"] : array_search($server,$MEMCACHE_SERVERS)).'&op=6\');">[<b>Flush server</b>]</button>
+                  </td></tr>';
+            echo "<tr class=tr-1><td class=td-0>Memcache Version</td><td>".($memcacheVersion[$server])."</td></tr>";
+            
     		echo '<tr class=tr-0><td class=td-0>Start Time</td><td>',date(DATE_FORMAT,$memcacheStatsSingle[$server]['STAT']['time']-$memcacheStatsSingle[$server]['STAT']['uptime']),'</td></tr>';
     		echo '<tr class=tr-1><td class=td-0>Uptime</td><td>',duration($memcacheStatsSingle[$server]['STAT']['time']-$memcacheStatsSingle[$server]['STAT']['uptime']),'</td></tr>';
     		echo '<tr class=tr-0><td class=td-0>Memcached Server Version</td><td>'.$memcacheStatsSingle[$server]['STAT']['version'].'</td></tr>';
     		echo '<tr class=tr-1><td class=td-0>Used Cache Size</td><td>',bsize($memcacheStatsSingle[$server]['STAT']['bytes']),'</td></tr>';
-    		echo '<tr class=tr-0><td class=td-0>Total Cache Size</td><td>',bsize($memcacheStatsSingle[$server]['STAT']['limit_maxbytes']),'</td></tr>';
+    		echo '<tr class=tr-0><td class=td-0>Max Cache Size</td><td>',bsize($memcacheStatsSingle[$server]['STAT']['limit_maxbytes']),'</td></tr>';
+    		
+    		echo '<tr class=tr-1><td class=td-0>Current Connections Count</td><td>',(int)($memcacheStatsSingle[$server]['STAT']['curr_connections']),'</td></tr>';
+    		echo '<tr class=tr-0><td class=td-0>Total Connections So Far</td><td>',(int)($memcacheStatsSingle[$server]['STAT']['total_connections']),'</td></tr>';
+    		echo '<tr class=tr-1><td class=td-0>Flush CMD count</td><td>',(int)($memcacheStatsSingle[$server]['STAT']['cmd_flush']),'</td></tr>';
+    		echo '<tr class=tr-0><td class=td-0>Get CMD count</td><td>',(int)($memcacheStatsSingle[$server]['STAT']['cmd_get']),'</td></tr>';
+    		echo '<tr class=tr-1><td class=td-0>Set CMD cunt</td><td>',(int)($memcacheStatsSingle[$server]['STAT']['cmd_set']),'</td></tr>';
+    		echo '<tr class=tr-0><td class=td-0>Items Evicted So Far</td><td>',(int)($memcacheStatsSingle[$server]['STAT']['evictions']),'</td></tr>';
+    		echo '<tr class=tr-1><td class=td-0>Bytes Read So Far</td><td>',bsize($memcacheStatsSingle[$server]['STAT']['bytes_read']),'</td></tr>';
+    		echo '<tr class=tr-0><td class=td-0>Bytes Written So Far</td><td>',bsize($memcacheStatsSingle[$server]['STAT']['bytes_written']),'</td></tr>';
+    		echo '<tr class=tr-1><td class=td-0>Threads</td><td>',(int)($memcacheStatsSingle[$server]['STAT']['threads']),'</td></tr>';
+    		
+            echo '<tr class=tr-0><td class=td-0>'.$server.'</td><td>
+                  <button onclick="javascript:must_confirm(\'Clear stats on the server?!\',\''.$PHP_SELF.'&server='.($_GET["server"] ? $_GET["server"] : array_search($server,$MEMCACHE_SERVERS)).'&op=7\');">[<b>Reset stats</b>]</button>
+                  </td></tr>';
+            
     		echo '</tbody></table>';
 	   }
     echo <<<EOB
@@ -765,7 +851,7 @@ EOB;
 	<div class="info"><h2>Cache Information</h2>
 		<table cellspacing=0><tbody>
 		<tr class=tr-0><td class=td-0>Current Items(total)</td><td>$curr_items ($total_items)</td></tr>
-		<tr class=tr-1><td class=td-0>Hits</td><td>{$hits}</td></tr>
+		<tr class=tr-1><td class=td-0>Hits</td><td class=td-1>{$hits}</td></tr>
 		<tr class=tr-0><td class=td-0>Misses</td><td>{$misses}</td></tr>
 		<tr class=tr-1><td class=td-0>Request Rate (hits, misses)</td><td>$req_rate cache requests/second</td></tr>
 		<tr class=tr-0><td class=td-0>Hit Rate</td><td>$hit_rate cache requests/second</td></tr>
@@ -782,11 +868,15 @@ EOB;
 
 		$m=0;
 		$cacheItems= getCacheItems();
+		$slabInfo= getAllSlabStats();
+		
 		$items = $cacheItems['items'];
 		$totals = $cacheItems['counts'];
 		$maxDump = MAX_ITEM_DUMP;
 		foreach($items as $server => $entries) {
-
+			if ($_REQUEST["server"] != array_search($server,$MEMCACHE_SERVERS)) {
+				continue;
+			}
     	echo <<< EOB
 
 			<div class="info"><table cellspacing=0><tbody>
@@ -799,23 +889,22 @@ EOB;
 				echo
 					"<tr class=tr-$m>",
 					"<td class=td-0><center>",'<a href="',$dumpUrl,'">',$slabId,'</a>',"</center></td>",
-					"<td class=td-last><b>Item count:</b> ",$slab['number'],'<br/><b>Age:</b>',duration($time-$slab['age']),'<br/> <b>Evicted:</b>',((isset($slab['evicted']) && $slab['evicted']==1)? 'Yes':'No');
+					"<td class=td-last>
+					   <b>Item count: </b> ",$slab['number'],'<br/>
+					   <b>Chunk Size (max item size): </b> ',(bsize($slabInfo[$server][$slabId]['chunk_size'])).'<br/>
+					   <b>Chunks Per Page (items per 1MB): </b> ',(($slabInfo[$server][$slabId]['chunks_per_page'])).'<br/>
+					   <b>Pages Allocated: </b> ',(($slabInfo[$server][$slabId]['total_pages'])).'<br/>
+					   <b>Total Chunks (capacity): </b> ',(($slabInfo[$server][$slabId]['total_chunks'])).'<br/>
+					   <b>Used Chunks (capacity): </b> ',(($slabInfo[$server][$slabId]['used_chunks'])).'<br/>
+					   <b>Free Chunks (free capacity): </b> ',(($slabInfo[$server][$slabId]['total_chunks'] - $slabInfo[$server][$slabId]['used_chunks'])).'<br/>
+					   <b>Evicted: </b> '.((int)$slab['evicted']).'<br/>
+					   <b>Age: </b> ',duration($time-$slab['age']),'<br/>';
 					if ((isset($_GET['dumpslab']) && $_GET['dumpslab']==$slabId) &&  (isset($_GET['server']) && $_GET['server']==array_search($server,$MEMCACHE_SERVERS))){
 					    echo "<br/><b>Items: item</b><br/>";
 					    $items = dumpCacheSlab($server,$slabId,$slab['number']);
-                        // maybe someone likes to do a pagination here :)
-					    $i=1;
+                        ksort($items['ITEM']);
                         foreach($items['ITEM'] as $itemKey=>$itemInfo){
-                            $itemInfo = trim($itemInfo,'[ ]');
-
-
-                            echo '<a href="',$PHP_SELF,'&op=4&server=',(array_search($server,$MEMCACHE_SERVERS)),'&key=',base64_encode($itemKey).'">',$itemKey,'</a>';
-                            if ($i++ % 10 == 0) {
-                                echo '<br/>';
-                            }
-                            elseif ($i!=$slab['number']+1){
-                                echo ',';
-                            }
+                            echo '<a href="',$PHP_SELF,'&op=4&server=',(array_search($server,$MEMCACHE_SERVERS)),'&key=',base64_encode($itemKey).'">'.$itemKey.'</a><br> ';
                         }
 					}
 
@@ -867,14 +956,103 @@ EOB;
 		$theserver = $MEMCACHE_SERVERS[(int)$_GET['server']];
 		list($h,$p) = explode(':',$theserver);
         $r = sendMemcacheCommand($h,$p,'delete '.$theKey);
-        echo 'Deleting '.$theKey.':'.$r;
+        echo 'Deleting '.$theKey.' : '.$r;
 	break;
     
    case 6: // flush server
         $theserver = $MEMCACHE_SERVERS[(int)$_GET['server']];
         $r = flushServer($theserver);
-        echo 'Flush  '.$theserver.":".$r;
+        echo 'Flush  '.$theserver." : ".$r;
    break;
+   case 7: // flush stats
+        $theserver = $MEMCACHE_SERVERS[(int)$_GET['server']];
+        $r = flushStats($theserver);
+        echo 'Stats reset '.$theserver." : ".print_r( $r,true);
+   break;
+   case 8: // variables
+		$m=0;
+		$cacheItems= getCacheItems();
+		$slabInfo  = getAllSlabStats();
+        $items = $cacheItems['items'];
+		$totals = $cacheItems['counts'];
+		$maxDump = MAX_ITEM_DUMP;
+		foreach($items as $server => $entries) {
+
+        $memcacheStats = getMemcacheStats();
+        
+
+    	echo <<< EOB
+
+			<h3>$server</h3>
+            <table cellspacing=1 id="slabStats" class="tablesorter"><thead>
+			<tr>
+            <th class="vtip" title="Id of the slab">Id</th>
+            <th class="vtip" title="Current items count">Items</th>
+            <th class="vtip" title="The amount of space each chunk uses.<br>One item will use one chunk of the appropriate size">Chunk Size</th>
+            <th class="vtip" title="How many chunks exist within one page. A page by default is one megabyte in size.<br>Slabs are allocated per page, then broken into chunks">Chunks per page</th>
+            <th class="vtip" title="Total number of pages allocated to the slab class">Pages</th>
+            <th class="vtip" title="Total number of chunks allocated to the slab class">Total Chunks</th>
+            <th class="vtip" title="How many chunks have been allocated to items">Used Chunks</th>
+            <th class="vtip" title="Chunks not yet allocated to items, or freed via delete">Free Chunks</th>
+            <th class="vtip" title="How much memory is wasted because its not used by any item">Free Bytes</th>
+            <th class="vtip" title="% of total cache space (all memeory allocated by memcache) used by slabs of this class">% of space</th>
+            <th class="vtip" title="Number of times an item had to be evicted from the LRU before it expired">Evicted</th>
+            <th class="vtip" title="Seconds since the last access for the most recent item evicted from this class.<br>Use this to judge how recently active your evicted data is">Evicted time</th>
+            <th class="vtip" title="Age of the oldest item in the LRU.">Age</th>
+            <th class="vtip" title="Details and keys">Link</th>
+            </tr>
+            </thead>
+            <tbody>
+
+EOB;
+
+			foreach($entries as $slabId => $slab) {
+                $itemsCount = $slab['number'];
+                $chunkSize  = $slabInfo[$server][$slabId]['chunk_size'];
+                $itemsSpace = round(($itemsCount * $chunkSize * 100) / $memcacheStats['limit_maxbytes'], 3);
+
+                $chunks_total = $slabInfo[$server][$slabId]['total_chunks'];
+                $chunks_used  = $slabInfo[$server][$slabId]['used_chunks'];
+
+                $percentFree = round((($chunks_total - $chunks_used) * 100) / $chunks_total, 2);
+
+                $totalBytes  = $chunks_total * $chunkSize;
+                $usedBytes   = $slabInfo[$server][$slabId]['used_chunks'] * $chunkSize;
+                $unusedBytes = $totalBytes - $usedBytes;
+
+			    $dumpUrl = $PHP_SELF.'&op=2&server='.(array_search($server,$MEMCACHE_SERVERS)).'&dumpslab='.$slabId;
+				echo "
+					<tr class=tr-$m>
+					<td class=td-0>".$slabId."</td>
+					<td>".$itemsCount."</td>
+					<td>".$chunkSize."</td>
+					<td>".(($slabInfo[$server][$slabId]['chunks_per_page']))."</td>
+					<td>".(($slabInfo[$server][$slabId]['total_pages']))."</td>
+					<td class='vtip' title='".bsize($totalBytes)."'>".$chunks_total."</td>
+					<td class='vtip' title='".bsize($usedBytes)."'>".$chunks_used."</td>
+					<td class='vtip' title='".$percentFree." % allocated chunks in this class'>".($chunks_total - $chunks_used)."</td>
+					<td class='vtip' title='".bsize($unusedBytes)."'>".$unusedBytes."</td>
+					<td>".$itemsSpace."</td>
+					<td>".(int)$slab['evicted']."</td>
+					<td>".(int)$slab['evicted_time']."</td>
+                    <td>".duration($time-$slab['age'])."</td>
+					<td class=td-0><center><a href=\"".$dumpUrl."\">details</a></center></td>
+
+                    </tr>";
+				$m=1-$m;
+			}
+		echo <<<EOB
+			</tbody></table>
+			<hr/>
+EOB;
+}
+		break;
+
+    break;
+
+
+
+
 }
 echo getFooter();
 
