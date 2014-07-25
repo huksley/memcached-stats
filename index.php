@@ -1,3 +1,3 @@
 <?php
-header("Location: memcached.php");
+header("Location: memcache.php");
 ?>
